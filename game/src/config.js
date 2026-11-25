@@ -1,61 +1,142 @@
-// Every tuning number and colour in one place. The playfield is a fixed 1280x720 logical area;
-// the renderer scales it to the window, so no rule below depends on the screen size.
+// config.js — angka, warna, menu, dan tata letak Warung Kilat.
+// Modul lain membaca nilai di sini secara langsung, jadi angka dan
+// nama kuncinya harus tetap seperti ini.
 
-export const FIELD = { width: 1280, height: 720, groundY: 664 };
+export const W = 1280;
+export const H = 720;
+export const MAX_HEARTS = 3;
 
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
-export const STEP = 1 / 60;
+export const COOK_TIME = 3;
+export const WARN_TIME = 2.8;
+export const BURN_TIME = 4.5;
 
-export const PLAYER = {
-  width: 72,
-  height: 24,
-  speed: 560,
-  invulnerable: 1.5,
+export const BEST_KEY = 'warungkilat.best';
+
+export const COLORS = {
+  text: '#fff6e3',
+  dim: '#e9c89a',
+  gold: '#ffd54a',
+  good: '#5ed26b',
+  warn: '#ffc44a',
+  bad: '#ff5b4a',
+  hud: 'rgba(38,19,9,0.93)',
+  ink: '#4a2812',
 };
 
-export const LIVES = 3;
-
-export const BLOCK = {
-  minWidth: 40,
-  maxWidth: 110,
-  height: 36,
-  speed: 240,
-  speedPerLevel: 30,
-  speedJitter: 90,
-  interval: 0.55,
-  intervalScale: 0.88,
-  minInterval: 0.14,
-  dodgePoints: 1,
+export const ITEMS = {
+  nasi: { name: 'Nasi' },
+  telur: { name: 'Telur' },
+  mie: { name: 'Mie' },
+  ayam: { name: 'Ayam' },
+  sate_mentah: { name: 'Sate' },
+  teh: { name: 'Teh' },
+  es: { name: 'Es Batu' },
 };
 
-export const COIN = {
-  size: 24,
-  speed: 190,
-  speedPerLevel: 14,
-  interval: 1.4,
-  intervalJitter: 0.8,
-  points: 10,
+// raw = bahan yang harus dikumpulkan, cook = alat masak yang dipakai
+// (null berarti bahannya langsung dirakit di piring), plate = isi
+// piring yang membuat hidangan siap disajikan.
+export const DISHES = {
+  nasi_goreng: {
+    name: 'Nasi Goreng',
+    price: 100,
+    raw: ['nasi', 'telur'],
+    cook: 'wajan',
+    plate: ['nasi_goreng'],
+  },
+  mie_ayam: {
+    name: 'Mie Ayam',
+    price: 120,
+    raw: ['mie', 'ayam'],
+    cook: 'panci',
+    plate: ['mie_ayam'],
+  },
+  sate_ayam: {
+    name: 'Sate Ayam',
+    price: 130,
+    raw: ['sate_mentah'],
+    cook: 'panggangan',
+    plate: ['sate_ayam'],
+  },
+  es_teh: {
+    name: 'Es Teh Manis',
+    price: 60,
+    raw: ['teh', 'es'],
+    cook: null,
+    plate: ['teh', 'es'],
+  },
 };
 
-/** Seconds of play per level, and the last level: speeds and spawn rates stop growing there. */
-export const LEVEL = { seconds: 12, max: 12 };
-
-/** How many falling things can exist at once; the pool is allocated once, at boot. */
-export const POOL_SIZE = 64;
-
-export const PALETTE = {
-  backdrop: '#11141b',
-  sky: '#1b1f2a',
-  ground: '#2a3040',
-  player: '#4fc3f7',
-  block: '#e5534b',
-  coin: '#f2c94c',
-  panel: '#252b38',
-  text: '#eef1f5',
-  muted: '#8b93a3',
+export const COOKERS = {
+  wajan: 'Wajan',
+  panci: 'Panci',
+  panggangan: 'Panggangan',
 };
 
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+// Menu bertambah tiap hari: hari 2 menambah Mie Ayam, hari 3 Sate Ayam.
+const MENU_DAY1 = ['nasi_goreng', 'es_teh'];
+const MENU_DAY2 = [...MENU_DAY1, 'mie_ayam'];
+const MENU_DAY3 = [...MENU_DAY2, 'sate_ayam'];
 
-/** Where the best score is kept between visits (this browser only). */
-export const BEST_KEY = 'block-dodger.best';
+export const DAYS = [
+  {
+    duration: 120,
+    gap: [7, 9.5],
+    patience: 50,
+    maxOrders: 4,
+    menu: MENU_DAY1,
+    news: 'Nasi Goreng dan Es Teh Manis',
+  },
+  {
+    duration: 120,
+    gap: [5.5, 8],
+    patience: 44,
+    maxOrders: 5,
+    menu: MENU_DAY2,
+    news: 'Mie Ayam',
+  },
+  {
+    duration: 120,
+    gap: [4.5, 7],
+    patience: 40,
+    maxOrders: 5,
+    menu: MENU_DAY3,
+    news: 'Sate Ayam',
+  },
+];
+
+// Rak bahan di baris atas dapur: tujuh wadah berjajar.
+const BIN_DEFS = [
+  ['nasi', 'Nasi'],
+  ['telur', 'Telur'],
+  ['mie', 'Mie'],
+  ['ayam', 'Ayam'],
+  ['sate_mentah', 'Sate'],
+  ['teh', 'Teh'],
+  ['es', 'Es Batu'],
+];
+
+function makeBin(i, def) {
+  const [item, label] = def;
+  return {
+    id: 'bin_' + item,
+    type: 'bin',
+    item,
+    label,
+    x: 24 + i * 127,
+    y: 190,
+    w: 117,
+    h: 92,
+  };
+}
+
+export const STATIONS = [
+  ...BIN_DEFS.map((def, i) => makeBin(i, def)),
+  { id: 'serve', type: 'serve', label: 'MEJA SAJI', x: 940, y: 190, w: 316, h: 92 },
+  { id: 'wajan', type: 'cook', cook: 'wajan', label: 'Wajan', x: 130, y: 372, w: 160, h: 104 },
+  { id: 'panci', type: 'cook', cook: 'panci', label: 'Panci Rebus', x: 420, y: 372, w: 160, h: 104 },
+  { id: 'panggangan', type: 'cook', cook: 'panggangan', label: 'Panggangan', x: 700, y: 372, w: 200, h: 104 },
+  { id: 'piring1', type: 'plate', label: 'Piring 1', x: 980, y: 372, w: 120, h: 104 },
+  { id: 'piring2', type: 'plate', label: 'Piring 2', x: 1120, y: 372, w: 120, h: 104 },
+  { id: 'trash', type: 'trash', label: 'Sampah', x: 40, y: 540, w: 110, h: 84 },
+];

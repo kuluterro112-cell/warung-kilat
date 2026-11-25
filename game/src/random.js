@@ -1,12 +1,26 @@
-// A small seeded random number generator (mulberry32): the same seed gives the same game,
-// which is what makes the screenshot scenes repeatable.
+// random.js — generator angka acak ber-seed (deterministik) untuk mode screenshot.
+export function makeRng(seed) {
+  let state = (seed >>> 0) || 1;
 
-export function createRandom(seed) {
-  let a = seed | 0;
-  return function random() {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  function unit() {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let mix = state;
+    mix = Math.imul(mix ^ (mix >>> 15), mix | 1);
+    mix ^= mix + Math.imul(mix ^ (mix >>> 7), mix | 61);
+    return ((mix ^ (mix >>> 14)) >>> 0) / 4294967296;
+  }
+
+  function span(lo, hi) {
+    return lo + (hi - lo) * unit();
+  }
+
+  function whole(lo, hi) {
+    return Math.floor(span(lo, hi + 1));
+  }
+
+  function choice(items) {
+    return items[Math.floor(unit() * items.length)];
+  }
+
+  return { next: unit, range: span, int: whole, pick: choice };
 }

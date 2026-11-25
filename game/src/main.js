@@ -1,134 +1,232 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between four screens: title, play, paused and game over.
-//
-// ?seed=N fixes the falling pattern. ?shot=start|play|end (with &seed=N) stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { BEST_KEY, LIVES, STEP } from './config.js';
-import { createRandom } from './random.js';
-import { createWorld, EVENT_HIT, EVENT_OVER } from './world.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
-import { stageShot } from './shots.js';
-
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
-const MAX_FRAME = 0.25;
-
-const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
+// main.js — bootstrap, game loop, dan state machine (title, playing, paused, dayComplete, gameOver).
+import { W, H, DAYS, MAX_HEARTS, BEST_KEY } from './config.js';
+import { makeRng } from './random.js';
+import { createInput } from './input.js';
+import { createPlayer, movePlayer, nearestStation, standPoint, floorPoint, rectDist, SPEED, REACH, stations } from './world.js';
+import { resetOrders, updateOrders } from './orders.js';
+import { createKitchen, updateKitchen, interact } from './cooking.js';
+import { draw, addFloater, addBurst, updateFx, ticketRect } from './render.js';
+import * as audio from './audio.js';
+import { applyShot } from './shots.js';
 
 const canvas = document.getElementById('game');
-const status = document.getElementById('status');
-const world = createWorld(createRandom(seed));
-const renderer = createRenderer(canvas);
+const ctx = canvas.getContext('2d');
+const params = new URLSearchParams(location.search);
+const seed = Number(params.get('seed')) || (Date.now() & 0x7fffffff);
 
 function readBest() {
   try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
+    return Number(localStorage.getItem(BEST_KEY)) || 0;
+  } catch (e) {
     return 0;
   }
 }
 
-function saveBest(value) {
+function writeBest(value) {
   try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Storage can be off (private windows): the best score then lasts this visit only.
+    localStorage.setItem(BEST_KEY, String(value));
+  } catch (e) {
+    /* penyimpanan tidak tersedia, abaikan */
   }
 }
 
-function runShot(name) {
-  const scene = stageShot(name, world);
-  let painted = 0;
-  function paint() {
-    renderer.draw(world.state, scene.screen, scene.best);
-    painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
-  }
-  requestAnimationFrame(paint);
+function newGame() {
+  const g = {
+    state: 'title', frozen: false, t: 0, rng: makeRng(seed), best: readBest(), muted: false,
+    day: 1, timeLeft: 0, score: 0, coins: 0, hearts: MAX_HEARTS, combo: 0, bestCombo: 0, served: 0, lost: 0,
+    won: false, newBest: false, held: null, hover: null, orders: [], particles: [], floaters: [],
+    flash: 0, shake: 0, comboPulse: 0, dayStart: { score: 0, coins: 0, served: 0, lost: 0 },
+    player: createPlayer(), kitchen: createKitchen(), nextOrderIn: 1, orderSeq: 0,
+  };
+  g.fx = {
+    sfx: (n) => audio.play(n),
+    say: (x, y, s, col, size) => addFloater(g, x, y, s, col, size),
+    burst: (x, y, k, n) => addBurst(g, x, y, k, n),
+  };
+  return g;
 }
 
-function runGame() {
-  const input = createInput(canvas);
-  let screen = SCREEN_TITLE;
-  let best = readBest();
-  let accumulator = 0;
-  let last = performance.now();
+const game = newGame();
 
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each hit.
-  function announce(message) {
-    status.textContent = message;
+function beginDay(n) {
+  game.day = n;
+  game.timeLeft = DAYS[n - 1].duration;
+  game.combo = 0;
+  game.held = null;
+  game.kitchen = createKitchen();
+  game.player = createPlayer();
+  game.particles = [];
+  game.floaters = [];
+  game.dayStart = { score: game.score, coins: game.coins, served: game.served, lost: game.lost };
+  resetOrders(game);
+  game.state = 'playing';
+  audio.play('start');
+}
+
+function beginRun() {
+  Object.assign(game, { score: 0, coins: 0, hearts: MAX_HEARTS, bestCombo: 0, served: 0, lost: 0, won: false, newBest: false });
+  beginDay(1);
+}
+
+function finishRun(won) {
+  game.won = won;
+  game.orders = [];
+  game.newBest = game.score > game.best;
+  if (game.newBest) {
+    game.best = game.score;
+    writeBest(game.score);
   }
+  game.state = 'gameOver';
+  audio.play(won ? 'dayend' : 'over');
+}
 
-  function startGame() {
-    world.reset();
-    accumulator = 0;
-    screen = SCREEN_PLAY;
-    announce(`Playing. ${LIVES} lives.`);
+function closeDay() {
+  game.orders = [];
+  game.held = null;
+  if (game.day >= DAYS.length) finishRun(true);
+  else {
+    game.state = 'dayComplete';
+    audio.play('dayend');
   }
+}
 
-  function endGame() {
-    screen = SCREEN_OVER;
-    if (world.state.score > best) {
-      best = world.state.score;
-      saveBest(best);
-    }
-    announce(`Game over. Score ${world.state.score}. Best ${best}.`);
+function touchStation(s) {
+  if (s) interact(game, s);
+}
+
+function reachTarget() {
+  const p = game.player;
+  const t = p.target;
+  p.target = null;
+  p.stuck = 0;
+  p.moving = false;
+  if (t && t.station && rectDist(p.x, p.y, t.station) <= REACH + 6) {
+    game.hover = t.station;
+    touchStation(t.station);
   }
+}
 
-  function handleActions() {
-    const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) startGame();
-    else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
-      screen = SCREEN_PLAY;
-      announce('Playing.');
-    }
-  }
-
-  function step() {
-    if (screen === SCREEN_TITLE) {
-      world.step(STEP, 0, true);
+function stepPlayer(dt) {
+  const p = game.player;
+  const dir = input.axis();
+  let mx = dir.x;
+  let my = dir.y;
+  let budget = SPEED * dt;
+  if (mx || my) {
+    p.target = null;
+  } else if (p.target) {
+    const dest = p.target;
+    const ex = dest.x - p.x;
+    const ey = dest.y - p.y;
+    const dist = Math.hypot(ex, ey);
+    const close = dest.station ? rectDist(p.x, p.y, dest.station) <= 25 : dist < 4;
+    if (close) {
+      reachTarget();
       return;
     }
-    const events = world.step(STEP, input.direction(), false);
-    if (events & EVENT_OVER) endGame();
-    else if (events & EVENT_HIT) announce(world.state.lives === 1 ? 'Hit. 1 life left.' : `Hit. ${world.state.lives} lives left.`);
+    mx = ex / dist;
+    my = ey / dist;
+    budget = Math.min(budget, dist);
   }
-
-  function frame(now) {
-    requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
-    last = now;
-    handleActions();
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        step();
-        accumulator -= STEP;
-      }
-    } else {
-      accumulator = 0;
-    }
-    renderer.draw(world.state, screen, best);
+  if (!mx && !my) {
+    p.moving = false;
+    return;
   }
-
-  // Leaving the tab pauses a running game rather than letting blocks fall unseen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    }
-  });
-
-  announce('Block Dodger. Press Space or click to start.');
-  requestAnimationFrame(frame);
+  p.dx = mx;
+  p.dy = my;
+  if (Math.abs(mx) > 0.2) p.face = mx > 0 ? 1 : -1;
+  const moved = movePlayer(p, mx * budget, my * budget);
+  p.moving = moved > 0.05;
+  if (p.target) {
+    p.stuck = moved < budget * 0.3 ? p.stuck + dt : 0;
+    if (p.stuck > 0.5) reachTarget();
+  }
 }
 
-if (shot) runShot(shot);
-else runGame();
+function step(dt) {
+  game.timeLeft -= dt;
+  stepPlayer(dt);
+  updateOrders(game, dt, (o, i) => {
+    const r = ticketRect(i);
+    game.fx.say(r.x + r.w / 2, r.y + r.h + 16, 'Pesanan hangus! -1 hati', '#ff8a7a', 22);
+    game.fx.sfx('fail');
+    game.shake = 0.3;
+  });
+  updateKitchen(game, dt);
+  game.hover = nearestStation(game.player);
+  if (game.hearts <= 0) finishRun(false);
+  else if (game.timeLeft <= 0) closeDay();
+}
+
+function advance() {
+  if (game.frozen) return;
+  if (game.state === 'title' || game.state === 'gameOver') beginRun();
+  else if (game.state === 'dayComplete') beginDay(game.day + 1);
+  else if (game.state === 'paused') game.state = 'playing';
+}
+
+const input = createInput(canvas, {
+  gesture: () => audio.init(),
+  interact: () => {
+    if (game.frozen) return;
+    if (game.state === 'playing') touchStation(nearestStation(game.player));
+    else advance();
+  },
+  confirm: advance,
+  pause: () => {
+    if (game.frozen) return;
+    if (game.state === 'playing') game.state = 'paused';
+    else if (game.state === 'paused') game.state = 'playing';
+  },
+  mute: () => {
+    game.muted = audio.toggleMute();
+  },
+  back: () => {
+    if (!game.frozen && game.state === 'paused') game.state = 'title';
+  },
+  click: (x, y) => {
+    if (game.frozen) return;
+    if (game.state !== 'playing') {
+      advance();
+      return;
+    }
+    const hit = stations.find((s) => x >= s.x - 6 && x <= s.x + s.w + 6 && y >= s.y - 6 && y <= s.y + s.h + 6);
+    game.player.stuck = 0;
+    if (hit) {
+      const sp = standPoint(hit, game.player);
+      game.player.target = { x: sp.x, y: sp.y, station: hit };
+    } else {
+      const fp = floorPoint(x, y);
+      game.player.target = { x: fp.x, y: fp.y, station: null };
+    }
+  },
+});
+
+function resizeCanvas() {
+  const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  canvas.style.width = Math.floor(W * scale) + 'px';
+  canvas.style.height = Math.floor(H * scale) + 'px';
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && game.state === 'playing' && !game.frozen) game.state = 'paused';
+});
+
+const shot = params.get('shot');
+if (shot) applyShot(game, shot);
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (!game.frozen) {
+    game.t += dt;
+    if (game.state === 'playing') step(dt);
+    updateFx(game, game.state === 'paused' ? 0 : dt);
+  }
+  draw(ctx, game);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
