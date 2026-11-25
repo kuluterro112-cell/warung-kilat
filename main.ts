@@ -1,15 +1,12 @@
-// A working best-game-01 entry (Node 22, standard library only): the game is this directory's
-// game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
-// modules, no library and no network request), and the program hands it in. It copies game/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the
-// judge reads, with the vendored make.fun library. A starting point, not a winner: Block Dodger, a
-// plain 2D canvas game where a paddle dodges falling blocks and catches coins, with a title screen,
-// score, lives and levels, game over and restart, flat colours and no sound. Build your own game
-// (any genre, any library you vendor under game/, or none), put your 3 or 4 PNG or JPEG screenshots
-// in screenshots/ (the first by name is the cover) and run it.
+// Warung Kilat — program pengumpul entry (Node 22, pustaka standar saja).
+// Game-nya ada di folder game/ di sebelah file ini: file statis yang dibuka
+// browser desktop tanpa jaringan (index.html + modul ES, tanpa library).
+// Program ini menyalin game/ dan screenshots/ ke folder keluaran lalu
+// menulis dossier.json di sana, ringkasan yang dibaca juri, memakai
+// pustaka make.fun yang sudah di-vendor.
 //
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+// Menjalankan game secara lokal: `node serve.ts`, lalu buka http://localhost:8080.
+// Di luar wadah penilai, MAKEFUN_OUTPUT_DIR menggantikan /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -17,25 +14,35 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+// Batas yang dipakai penilai (reference/gate.json). Hanya text_max_bytes
+// yang membentuk isi dossier; sisanya menolak entry yang memang akan
+// ditolak penilai: lebih dari 4 screenshot, satu screenshot di atas 256 KiB,
+// lebih dari 993 file di game/, total di atas 48 MiB, atau ada path di game/
+// yang lebih dari 1000 byte.
+const DOSSIER_LIMITS = {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  game_max_files: 993,
+  game_max_bytes: 50331648,
+  game_path_max_bytes: 1000,
+};
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+function copyIfPresent(source, dest) {
+  if (!existsSync(source)) return;
+  cpSync(source, dest, { recursive: true });
+}
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
-// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of game
-// files, in all, or a path under game/ over 1000 bytes: game/ counts beside /output's own 1000-entry cap, its
-// screenshots/ and dossier.json).
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  }),
-);
+function main() {
+  const rootDir = fileURLToPath(new URL('.', import.meta.url));
+  const destDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+
+  mkdirSync(destDir, { recursive: true });
+  cpSync(join(rootDir, 'game'), join(destDir, 'game'), { recursive: true });
+  mkdirSync(join(destDir, 'screenshots'), { recursive: true });
+  copyIfPresent(join(rootDir, 'screenshots'), join(destDir, 'screenshots'));
+
+  const dossier = buildDossier(destDir, DOSSIER_LIMITS);
+  writeFileSync(join(destDir, 'dossier.json'), dossier);
+}
+
+main();

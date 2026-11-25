@@ -35,7 +35,8 @@ function newGame() {
     state: 'title', frozen: false, t: 0, rng: makeRng(seed), best: readBest(), muted: false,
     day: 1, timeLeft: 0, score: 0, coins: 0, hearts: MAX_HEARTS, combo: 0, bestCombo: 0, served: 0, lost: 0,
     won: false, newBest: false, held: null, hover: null, orders: [], particles: [], floaters: [],
-    flash: 0, shake: 0, comboPulse: 0, dayStart: { score: 0, coins: 0, served: 0, lost: 0 },
+    flash: 0, shake: 0, comboPulse: 0, dayBanner: 0, dayNews: '',
+    dayStart: { score: 0, coins: 0, served: 0, lost: 0 },
     player: createPlayer(), kitchen: createKitchen(), nextOrderIn: 1, orderSeq: 0,
   };
   g.fx = {
@@ -58,6 +59,8 @@ function beginDay(n) {
   game.particles = [];
   game.floaters = [];
   game.dayStart = { score: game.score, coins: game.coins, served: game.served, lost: game.lost };
+  game.dayBanner = 2.6;
+  game.dayNews = DAYS[n - 1].news;
   resetOrders(game);
   game.state = 'playing';
   audio.play('start');
@@ -145,6 +148,7 @@ function stepPlayer(dt) {
 
 function step(dt) {
   game.timeLeft -= dt;
+  if (game.dayBanner > 0) game.dayBanner -= dt;
   stepPlayer(dt);
   updateOrders(game, dt, (o, i) => {
     const r = ticketRect(i);

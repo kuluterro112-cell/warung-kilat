@@ -536,6 +536,32 @@ function paintGameOver(c, g) {
 }
 
 // ---------- adegan utama ----------
+// Spanduk pengumuman di awal hari: nomor hari + menu hari itu, memudar
+// selama beberapa detik pertama. Hanya muncul saat bermain langsung.
+function paintDayBanner(c, g) {
+  if (g.dayBanner <= 0 || g.state !== 'playing') return;
+  const fade = Math.min(1, g.dayBanner);
+  const cx = W / 2;
+  const top = 296;
+  c.save();
+  c.globalAlpha = fade;
+  c.fillStyle = 'rgba(30,16,8,0.88)';
+  rr(c, cx - 260, top, 520, 92, 18);
+  c.fill();
+  c.strokeStyle = '#ffd54a';
+  c.lineWidth = 3;
+  c.stroke();
+  c.fillStyle = '#ffd54a';
+  c.font = `bold 34px ${TYPEFACE}`;
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.fillText(`HARI ${g.day}`, cx, top + 26);
+  c.fillStyle = '#fff6e3';
+  c.font = `bold 20px ${TYPEFACE}`;
+  c.fillText(`Menu hari ini: ${g.dayNews}`, cx, top + 64);
+  c.restore();
+}
+
 export function draw(c, g) {
   if (!backdrop) backdrop = makeBackdrop();
   c.save();
@@ -557,6 +583,7 @@ export function draw(c, g) {
   paintEffects(c, g);
   paintHud(c, g);
   c.restore();
+  paintDayBanner(c, g);
   if (g.state === 'title') paintTitle(c, g);
   else if (g.state === 'paused') paintPaused(c, g);
   else if (g.state === 'dayComplete') paintDayDone(c, g);
