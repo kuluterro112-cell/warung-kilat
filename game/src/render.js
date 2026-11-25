@@ -1,6 +1,6 @@
 // render.js - menggambar seluruh adegan Warung Kilat: latar dapur, stasiun,
 // papan pesanan, HUD, partikel, teks melayang, dan layar-layar overlay.
-import { W, H, COLORS as C, DISHES, COOKERS, DAYS, MAX_HEARTS, COOK_TIME, WARN_TIME, BURN_TIME } from './config.js';
+import { W, H, COLORS as C, DISHES, COOKERS, DAYS, MAX_HEARTS, COOK_TIME, WARN_TIME, BURN_TIME, TIPS } from './config.js';
 import { stations, center } from './world.js';
 import { hintFor, plateProgress } from './cooking.js';
 import { drawItem, drawChef, drawHeart, roundRect as rr } from './art.js';
@@ -499,6 +499,7 @@ function paintPaused(c, g) {
   label(c, 'JEDA', W / 2, 290, 110, C.gold);
   label(c, 'Tekan P untuk lanjut', W / 2, 400, 34, C.text);
   label(c, 'Esc = kembali ke layar judul', W / 2, 450, 22, C.dim);
+  label(c, 'Tips: ' + TIPS[Math.floor(g.t / 4) % TIPS.length], W / 2, 510, 20, C.dim);
 }
 
 function paintDayDone(c, g) {
@@ -519,6 +520,7 @@ function paintDayDone(c, g) {
   });
   for (let i = 0; i < MAX_HEARTS; i++) drawHeart(c, 590 + i * 50, 500, 1.6, i < g.hearts ? '#ff4d5e' : '#4a3a3a');
   label(c, 'Menu baru besok: ' + DAYS[g.day].news, W / 2, 548, 22, '#ffb02e');
+  label(c, 'Tips: ' + TIPS[Math.floor(g.t / 4) % TIPS.length], W / 2, 592, 20, C.dim);
   blinkPrompt(c, g, `ENTER untuk Hari ${g.day + 1}`, 636);
 }
 

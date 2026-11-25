@@ -105,6 +105,18 @@ export const DAYS = [
   },
 ];
 
+// Tips singkat yang berputar di layar jeda dan layar akhir hari.
+export const TIPS = [
+  'Sajikan berurutan tanpa salah untuk menaikkan KOMBO.',
+  'Angkat masakan tepat waktu — kalau gosong, buang ke Sampah.',
+  'Es Teh tidak perlu dimasak, langsung rakit di piring.',
+  'Pesanan yang hampir habis waktunya berkedip — dahulukan!',
+  'Klik stasiun untuk berjalan ke sana dan langsung beraksi.',
+  'Wajan, Panci, dan Panggangan bisa dipakai bersamaan.',
+  'Piring yang sudah berisi hidangan siap disajikan ke Meja Saji.',
+  'Sabar pelanggan menipis — sajikan sebelum barnya habis.',
+];
+
 // Rak bahan di baris atas dapur: tujuh wadah berjajar.
 const BIN_DEFS = [
   ['nasi', 'Nasi'],
